@@ -1,0 +1,345 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "d364bc85",
+   "metadata": {},
+   "source": [
+    "# ASTRA DB VECTOR STORE"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "911807bd",
+   "metadata": {},
+   "source": [
+    "**Astra DB** is a **cloud-native database service** from **DataStax** that’s designed to make working with **Apache Cassandra** and **vector search** super easy — without you having to manage servers or clusters yourself.\n",
+    "\n",
+    "It’s often used in **AI, RAG (Retrieval-Augmented Generation)**, and **search projects** because it can store both:\n",
+    "\n",
+    "- **Structured data** (like a normal NoSQL database)\n",
+    "\n",
+    "- **Unstructured data embeddings** (for semantic search)\n",
+    "\n",
+    "**Key Features**  \n",
+    "**1. Fully managed Cassandra**  \n",
+    "You don’t install or manage nodes — Astra handles scaling, backups, and updates.\n",
+    "\n",
+    "**2. Vector Search built-in**  \n",
+    "- You can store vector embeddings (from OpenAI, AWS Bedrock, NVIDIA, etc.) directly in the database.\n",
+    "\n",
+    "- Supports semantic search (find similar meaning, not just keyword matches).\n",
+    "\n",
+    "**3. Multi-provider embedding support**  \n",
+    "- Can generate embeddings server-side via:\n",
+    " - OpenAI\n",
+    " - AWS Bedrock (Amazon Titan, etc.)\n",
+    " - NVIDIA (NV-Embed)\n",
+    " - Cohere\n",
+    " \n",
+    "**4. Flexible API access**  \n",
+    "- REST API\n",
+    "- gRPC\n",
+    "- GraphQL\n",
+    "- Client libraries (like langchain_astradb)\n",
+    "\n",
+    "**5. Serverless**  \n",
+    "- Pay only for what you use — no pre-allocated hardware.\n",
+    "\n",
+    "**6. Multi-region**  \n",
+    "- Deploy closer to your users for lower latency.\n",
+    "\n",
+    "**Why AI people use Astra DB**  \n",
+    "- You can combine raw text + metadata + vector embeddings in one place.\n",
+    "- Perfect for RAG pipelines:\n",
+    " - Take your documents.\n",
+    " - Embed them.\n",
+    " - Store in Astra DB.\n",
+    " - Search by similarity when a user asks a question.\n",
+    "\n",
+    "**Analogy**   \n",
+    "Think of Astra DB like Google Drive for AI data:\n",
+    " - Stores the text content (like storing PDFs, articles).\n",
+    " - Also stores a semantic fingerprint of each piece of text (vector embedding) so you can find by meaning, not just filename."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "f7e3600b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "from dotenv import load_dotenv\n",
+    "\n",
+    "os.environ[\"OPENAI_API_KEY\"] = os.getenv(\"OPENAI_API_KEY\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "73cf4428",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from langchain_openai import OpenAIEmbeddings\n",
+    "\n",
+    "embeddings = OpenAIEmbeddings(model=\"text-embedding-3-large\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "1aad1636",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ASTRA_DB_API_ENDPOINT = os.getenv(\"ASTRA_DB_API_ENDPOINT\")\n",
+    "ASTRA_DB_APPLICATION_TOKEN = os.getenv(\"ASTRA_DB_APPLICATION_TOKEN\")\n",
+    "ASTRA_DB_KEYSPACE = os.getenv(\"ASTRA_DB_KEYSPACE\")  # optional"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "5eb8a952",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Loaded 51 chunks from PDF.\n"
+     ]
+    }
+   ],
+   "source": [
+    "from langchain_community.document_loaders import PyPDFLoader\n",
+    "from langchain.text_splitter import RecursiveCharacterTextSplitter\n",
+    "from langchain_astradb import AstraDBVectorStore\n",
+    "\n",
+    "# --- Step 1: Load PDF ---\n",
+    "pdf_path = \"data\\\\attention-is-all-you-need-Paper.pdf\"  # Your PDF file path\n",
+    "loader = PyPDFLoader(pdf_path)\n",
+    "docs = loader.load()\n",
+    "\n",
+    "# --- Step 2: Split text into chunks ---\n",
+    "splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)\n",
+    "chunks = splitter.split_documents(docs)\n",
+    "\n",
+    "print(f\"Loaded {len(chunks)} chunks from PDF.\")\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "29ce9ab1",
+   "metadata": {},
+   "source": [
+    "## Method 1 – Explicit Embeddings"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "942b146a",
+   "metadata": {},
+   "source": [
+    "We embed the text locally using OpenAI and store it."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "dd9f3132",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Method 1: Stored using explicit embeddings.\n"
+     ]
+    }
+   ],
+   "source": [
+    "vector_store_explicit = AstraDBVectorStore(\n",
+    "    collection_name=\"pdf_explicit_embeddings\",\n",
+    "    embedding=embeddings,\n",
+    "    api_endpoint=ASTRA_DB_API_ENDPOINT,\n",
+    "    token=ASTRA_DB_APPLICATION_TOKEN,\n",
+    "    namespace=ASTRA_DB_KEYSPACE\n",
+    ")\n",
+    "\n",
+    "# Add PDF chunks to AstraDB\n",
+    "vector_store_explicit.add_documents(chunks)\n",
+    "print(\"Method 1: Stored using explicit embeddings.\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "fe5d13a3",
+   "metadata": {},
+   "source": [
+    "## Method 2 – Server-side Vectorization (vectorize)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c71ac365",
+   "metadata": {},
+   "source": [
+    "Astra DB does the embeddings for you (no local OpenAI calls).\n",
+    "This requires that Astra DB is set up with a Vector Service (e.g., NVIDIA, OpenAI, Cohere)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "73ebe5e2",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from astrapy.info import VectorServiceOptions\n",
+    "from langchain_astradb import AstraDBVectorStore\n",
+    "\n",
+    "vs_options = VectorServiceOptions(\n",
+    "    provider=\"bedrock\",                      # AWS Bedrock provider\n",
+    "    model_name=\"amazon.titan-embed-text-v1\"   # Change to the exact model you enabled in Astra\n",
+    ")\n",
+    "\n",
+    "vector_store_vectorize = AstraDBVectorStore(\n",
+    "    collection_name=\"pdf_server_vectorize_aws\",\n",
+    "    api_endpoint=ASTRA_DB_API_ENDPOINT,\n",
+    "    token=ASTRA_DB_APPLICATION_TOKEN,\n",
+    "    namespace=ASTRA_DB_KEYSPACE,\n",
+    "    collection_vector_service_options=vs_options\n",
+    ")\n",
+    "\n",
+    "# Add PDF chunks (server-side embedding via AWS Bedrock in Astra DB)\n",
+    "vector_store_vectorize.add_documents(chunks)\n",
+    "print(\"Stored using AWS Bedrock vector service in Astra DB.\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "348795fb",
+   "metadata": {},
+   "source": [
+    "## Method 3 – Auto-detect from Existing Collection\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "514856b6",
+   "metadata": {},
+   "source": [
+    "Method 3 is the auto-detect from existing collection method for Astra DB.\n",
+    "This assumes:\n",
+    "\n",
+    "You already have a collection in Astra DB (created earlier through Method 1, Method 2, or Astra’s UI/API).\n",
+    "\n",
+    "You just want to connect to it and start adding/querying documents without redefining vector settings."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "8efc56ef",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "c:\\Users\\viswa\\Documents\\GENAIandAGENTICAI\\LangChain_Vector_Stores\\vectorstore\\Lib\\site-packages\\langchain_astradb\\vectorstores.py:957: UserWarning: Collection supports lexical; however, autodetect encountered documents without a $lexical. The $lexical field will be set for new documents, but the pre-existing documents might not be reached by lexical search when running hybrid search mode.\n",
+      "  self.document_codec = _detect_document_codec(\n"
+     ]
+    }
+   ],
+   "source": [
+    "vector_store_autodetect = AstraDBVectorStore(\n",
+    "    collection_name=\"pdf_explicit_embeddings\",  # Must match existing collection name in Astra\n",
+    "    embedding=embeddings,                       # Optional if vectors already exist\n",
+    "    api_endpoint=ASTRA_DB_API_ENDPOINT,\n",
+    "    token=ASTRA_DB_APPLICATION_TOKEN,\n",
+    "    namespace=ASTRA_DB_KEYSPACE,\n",
+    "    autodetect_collection=True\n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "6c8c7d5d",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "c:\\Users\\viswa\\Documents\\GENAIandAGENTICAI\\LangChain_Vector_Stores\\vectorstore\\Lib\\site-packages\\langchain_astradb\\vectorstores.py:2677: BetaFeatureWarning: Method 'Collection.find_and_rerank' is in beta and might undergo signature or behaviour changes in the future.\n",
+      "  hybrid_reranked_results = self.astra_env.collection.find_and_rerank(\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "1. Attention Is All You Need\n",
+      "Ashish Vaswani∗\n",
+      "Google Brain\n",
+      "avaswani@google.com\n",
+      "Noam Shazeer∗\n",
+      "Google Brain\n",
+      "noam@google.com\n",
+      "Niki Parmar∗\n",
+      "Google Research\n",
+      "nikip@google.com\n",
+      "Jakob Uszkoreit∗\n",
+      "Google Research\n",
+      "usz...\n",
+      "\n",
+      "2. [32] Jie Zhou, Ying Cao, Xuguang Wang, Peng Li, and Wei Xu. Deep recurrent models with\n",
+      "fast-forward connections for neural machine translation. CoRR, abs/1606.04199, 2016.\n",
+      "11...\n",
+      "\n",
+      "3. mechanism. We propose a new simple network architecture, the Transformer,\n",
+      "based solely on attention mechanisms, dispensing with recurrence and convolutions\n",
+      "entirely. Experiments on two machine transla...\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "# ------------------------\n",
+    "# Step 3: Test a search\n",
+    "# ------------------------\n",
+    "results = vector_store_autodetect.similarity_search(\"What is the paper about?\", k=3)\n",
+    "for i, res in enumerate(results, start=1):\n",
+    "    print(f\"{i}. {res.page_content[:200]}...\\n\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "vectorstore",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.12.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

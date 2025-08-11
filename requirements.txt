@@ -1,0 +1,13 @@
+python-dotenv
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langchain-astradb
+pypdf
+chromadb
+faiss-cpu
+langchain_pinecone
+langchain_milvus
+langchain-qdrant
+qdrant_client
